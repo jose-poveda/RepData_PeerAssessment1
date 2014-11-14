@@ -8,18 +8,133 @@ output:
 
 ## Loading and preprocessing the data
 
+The first step for this project is to load the data completely in r. Due to the fact the data is in a zip file, the first step is to read this data, without having to unzip it first:
 
+```{r read document}
+setwd("~/Respaldo/Archivos_Git/RepData_PeerAssessment1")
+step <-read.csv(unz("activity.zip", "activity.csv"), stringsAsFactors = FALSE)
+```
+
+Now, we need to change the dates and times to an appropriate format:
+
+```{r preprocess data}
+Sys.setlocale("LC_TIME", "English")
+step$interval <- sprintf("%04d", step$interval)
+step$datetime <- paste(step$date, step$interval)
+step$datetime <- strptime(step$datetime, format = "%Y-%m-%d %H%M")
+```
+
+We're all set to start the analysis.
 
 ## What is mean total number of steps taken per day?
 
+1. The *mean* value per day is computed with this code.
 
+```{r mean}
+aggregate(steps ~ date, data = step, mean)
+```
+
+2. The *median* per day is calculated with this code.
+
+```{r median}
+aggregate(steps ~ date, data = step, median)
+```
+
+Not every day has a mean and median due to *missing values*
 
 ## What is the average daily activity pattern?
 
+To answer this question, first we will look at the **averaged graph per 5-minute interval** trough all the days. This can be computed by doing:
 
+```{r averaged 5 minute-interval}
+stept <- aggregate(steps ~ interval, data = step, mean)
+```
+
+The graph is drawn by using the `ggplot2` library.
+
+```{r graph averaged 5 minute-interval, fig.width=14}
+library(ggplot2)
+library(scales)
+g <- ggplot(stept, aes(as.POSIXct(interval, format ="%H%M"), steps))
+g + geom_line(aes(colour = steps)) + scale_x_datetime(breaks = "2 hour", labels = date_format("%H:%M")) + ggtitle("Averaged steps by 5-minute interval") + xlab("Time of day") + ylab("Average steps")
+```
+
+The second question is answered by using `which.max` in the data frame created for the graph. We can estimate it at around 8 or 9 AM, though we can have a better answer by doing:
+
+```{r maximum value}
+library(lubridate)
+h <- hour(strptime(stept$interval[which.max(stept$steps)], format = "%H%M"))
+min <- minute(strptime(stept$interval[which.max(stept$steps)], format = "%H%M"))
+paste(h, min, sep = ":")
+```
 
 ## Imputing missing values
 
+The first thing to do is to calculate the number of missing values in the data. This is done with the following function.
 
+```{r number of NA}
+length(which(is.na(step$steps)))
+```
+
+There's quite a big number of missing values. Luckily, as shown in the median per day table, all of the shown values are zero, which means that for every day, at least half of the values are zero. With this in mind, We'll transform all NA's to zeros. Of course, this will have a toll on the accuracy of the results, but this might be a helpful way to include them.
+
+```{r Imputted data} 
+stepNA <- step
+stepNA$steps <- replace(step$steps, which(is.na(step$steps)), 0)
+```
+
+1. The *histogram* for this data frame is shown:
+
+```{r Histogram, fig.width=14} 
+stepaNA <- aggregate(steps ~ date, data = stepNA, sum)
+h <- ggplot(stepaNA, aes(as.POSIXct(date, format ="%Y-%m-%d"), steps))
+h + geom_histogram(stat = "identity") + ggtitle("Total of steps per day") + xlab("Day") + ylab("Total steps")
+```
+
+Now we'll compute the mean and the median of this new data frame.
+
+2. The *mean* value per day is computed with this code. Then we'll compare both.
+
+```{r mean of imputted data}
+stepa <- aggregate(steps ~ date, data = step, mean)
+stepaNA <- aggregate(steps ~ date, data = stepNA, mean)
+mergeboth <- merge(stepa, stepaNA, by.x = "date", by.y = "date")
+mergeboth$equal <- mergeboth$steps.x == mergeboth$steps.y
+print(mergeboth)
+```
+
+It is fairly obvious that there are no visible differences between both results. The zeroes obtained from the NA's were discarded by R during the merge.
+
+3. The *median* per day is calculated with this code.
+
+```{r median of imputted data}
+stepa <- aggregate(steps ~ date, data = step, median)
+stepaNA <- aggregate(steps ~ date, data = stepNA, median)
+mergeboth <- merge(stepa, stepaNA, by.x = "date", by.y = "date")
+mergeboth$equal <- mergeboth$steps.x == mergeboth$steps.y
+print(mergeboth)
+```
+
+Following the procedure done in 1, we arrive to the same results, medians being the same before and after imputing the NA's.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+First, we need to create a new column that assigns these two factors.
+
+```{r generating weekdays factor}
+stepNA$weekdays <- weekdays(stepNA$datetime, abbreviate = TRUE)
+stepNA$weekdays <- gsub("S..", "Weekend", stepNA$weekdays)
+stepNA$weekdays <- gsub("T..", "Weekday", stepNA$weekdays)
+stepNA$weekdays <- gsub("Mon", "Weekday", stepNA$weekdays)
+stepNA$weekdays <- gsub("Wed", "Weekday", stepNA$weekdays)
+stepNA$weekdays <- gsub("Fri", "Weekday", stepNA$weekdays)
+stepNA$weekdays <- as.factor(stepNA$weekdays)
+```
+
+Now we'll use this to generate a graph for this data by days.
+
+```{r weekday graph, fig.width=14}
+steptNA <- aggregate(steps ~ interval + weekdays, data = stepNA, mean)
+gg <- ggplot(steptNA, aes(as.POSIXct(interval, format ="%H%M"), steps))
+gg + geom_line(aes(colour = steps)) + scale_x_datetime(breaks = "2 hour", labels = date_format("%H:%M")) + ggtitle("Averaged steps by 5-minute interval") + xlab("Time of day") + ylab("Average steps") + facet_grid(weekdays ~ .)
+```
